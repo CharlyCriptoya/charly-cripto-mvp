@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Charly Cripto</title>
+  <style>
+    body{
+      margin:0; color:#e8ecf1; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,sans-serif;
+      background:#0e0f13 url("https://i.ibb.co/vh2b8Lf/muro.jpg") no-repeat center center fixed;
+      background-size:cover;
+    }
+    .wrap{max-width:1100px;margin:0 auto;padding:16px}
+    .card{background:rgba(21,24,33,.92); border:1px solid #232833; border-radius:12px; padding:12px; margin-bottom:12px}
+    .row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #232833}
+    .row:last-child{border-bottom:none}
+    .mut{color:#9aa3b2;font-size:13px}
+    select,button,input{background:#0f1220;border:1px solid #232833;border-radius:6px;color:#e8ecf1;padding:6px 8px}
+    button{background:#1f6feb;cursor:pointer}
+    h1{margin:0 0 12px;font-size:22px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🚀 Charly Cripto</h1>
+
+    <!-- DÓLAR ARRIBA -->
+    <div class="card">
+      <strong>💵 Cotización del dólar</strong>
+      <div id="dolares" class="mut" style="margin-top:6px">Cargando...</div>
+    </div>
+
+    <!-- LISTA DE PARES (USDT y ARS) -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong>📊 Pares</strong>
+        <div class="mut">ARS = USDT × USD/ARS</div>
+      </div>
+      <div class="row" style="font-weight:600">
+        <div style="width:28%">Par</div>
+        <div style="width:24%;text-align:right">USDT</div>
+        <div style="width:24%;text-align:right">ARS</div>
+        <div style="width:24%;text-align:right">Máx / Mín (24h)</div>
+      </div>
+      <div id="pairs"></div>
+    </div>
+
+    <!-- GRÁFICO -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong>📈 Gráfico</strong>
+        <div>
+          <select id="symSel">
+            <option>BTCUSDT</option><option>ETHUSDT</option>
+            <option>SOLUSDT</option><option>BNBUSDT</option>
+            <option>ADAUSDT</option><option>XRPUSDT</option>
+          </select>
+          <select id="intSel">
+            <option>1m</option><option>5m</option><option>15m</option>
+            <option>30m</option><option selected>1h</option><option>1d</option>
+          </select>
+        </div>
+      </div>
+      <div id="chart" style="height:320px"></div>
+      <div id="ohlc" class="mut" style="margin-top:6px"></div>
+    </div>
+
+    <!-- (Opcional) Análisis IA: placeholder sin clave -->
+    <div class="card">
+      <strong>🤖 Análisis técnico (IA)</strong>
+      <div class="mut" style="margin-top:6px">
+        Escribí tu hipótesis y niveles; esto es informativo, no es consejo financiero.
+      </div>
+      <textarea id="q" rows="3" style="width:100%;background:#0f1220;color:#e8ecf1;margin-top:8px"></textarea>
+      <button id="ask" style="margin-top:8px">Generar idea (simulado)</button>
+      <div id="a" class="mut" style="margin-top:8px;white-space:pre-wrap"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  <script>
+  // ====== USD/ARS (elige blue si existe, si no oficial) ======
+  let USDARS = 0;
+  async function loadDolar(){
+    try{
+      const r = await fetch('/api/dolar'); const arr = await r.json();
+      const byName = (name) => arr.find(x => (x.nombre||'').toLowerCase() === name);
+      const blue = byName('blue') || arr.find(x => (x.nombre||'').toLowerCase().includes('blue'));
+      const oficial = byName('oficial') || arr.find(x => (x.nombre||'').toLowerCase().includes('oficial')) || arr[0];
+      const chosen = blue || oficial;
+      USDARS = Number(chosen?.venta) || 0;
+
+      // Mostramos todas para que tengas el panel completo
+      const lines = arr.map(x => `${x.nombre}: ${Number(x.venta||0).toLocaleString('es-AR',{minimumFractionDigits:2})}`).join(' · ');
+      document.getElementById('dolares').textContent = lines || 'sin datos';
+    }catch(e){
+      document.getElementById('dolares').textContent = 'error';
+      USDARS = 0;
+    }
+  }
+  loadDolar(); setInterval(loadDolar, 30000);
+
+  // ====== LISTA DE PARES (puede ampliarse) ======
+  const defaultPairs = ["BTCUSDT","ETHUSDT","SOLUSDT","BNBUSDT","ADAUSDT","XRPUSDT","DOGEUSDT"];
+  const pairsEl = document.getElementById('pairs');
+
+  function renderPairRows(){
+    pairsEl.innerHTML = '';
+    for(const sym of defaultPairs){
+      const row = document.createElement('div'); row.className='row'; row.id = `pair-${sym}`;
+      row.innerHTML = `
+        <div style="width:28%">${sym.replace('USDT','')}/USDT</div>
+        <div style="width:24%;text-align:right" data-usdt>—</div>
+        <div style="width:24%;text-align:right" data-ars>—</div>
+        <div style="width:24%;text-align:right" data-hilo>—</div>`;
+      pairsEl.appendChild(row);
+    }
+  }
+  renderPairRows();
+
+  async function loadPair(sym){
+    const row = document.getElementById(`pair-${sym}`); if(!row) return;
+    const usdtEl = row.querySelector('[data-usdt]'); const arsEl = row.querySelector('[data-ars]');
+    const hiloEl = row.querySelector('[data-hilo]');
+    try{
+      const r = await fetch(`/api/binance-price/${sym}`);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const { price, high, low } = await r.json();
+      const p = Number(price||0), hi = Number(high||0), lo = Number(low||0);
+      usdtEl.textContent = p.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:6});
+      const ars = USDARS * p;
+      arsEl.textContent = (ars||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      hiloEl.textContent = `${hi.toLocaleString('es-AR',{maximumFractionDigits:6})} / ${lo.toLocaleString('es-AR',{maximumFractionDigits:6})}`;
+    }catch(e){
+      usdtEl.textContent='error'; arsEl.textContent='—'; hiloEl.textContent='—';
+    }
+  }
+  function refreshAll(){ defaultPairs.forEach(loadPair); }
+  refreshAll(); setInterval(refreshAll, 5000);
+
+  // ====== GRÁFICO (candles) ======
+  const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+    layout:{ background:{color:'#151821'}, textColor:'#e8ecf1' },
+    grid:{ vertLines:{color:'#232833'}, horzLines:{color:'#232833'} },
+    rightPriceScale:{borderVisible:false}, timeScale:{borderVisible:false}
+  });
+  const series = chart.addCandlestickSeries();
+
+  async function loadChart(sym, interval){
+    try{
+      const r = await fetch(`/api/binance-klines/${sym}/${interval}`);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const data = await r.json();
+      series.setData(data);
+      const last = data[data.length-1] || {};
+      document.getElementById('ohlc').textContent =
+        `O ${last.open??'-'} · H ${last.high??'-'} · L ${last.low??'-'} · C ${last.close??'-'}`;
+    }catch(e){ document.getElementById('ohlc').textContent = 'sin datos'; }
+  }
+  const symSel = document.getElementById('symSel');
+  const intSel = document.getElementById('intSel');
+  symSel.onchange = intSel.onchange = () => loadChart(symSel.value, intSel.value);
+  loadChart(symSel.value, intSel.value);
+
+  // ====== IA (placeholder sin clave) ======
+  document.getElementById('ask').onclick = () => {
+    const txt = document.getElementById('q').value.trim();
+    const msg = txt
+      ? `Idea rápida (simulada): mirá el rango del último día (máx/mín 24h) y esperá ruptura con confirmación de volumen.`
+      : `Escribí qué querés analizar (símbolo, marco temporal, rango, idea).`;
+    document.getElementById('a').textContent = msg;
+  };
+  </script>
+</body>
+</html>
